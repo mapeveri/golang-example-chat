@@ -12,20 +12,46 @@ import (
 
 var ctx = context.Background()
 
-type Message struct {
-	User    string `json:"user"`
-	Message string `json:"message"`
-}
-
-var rdb = redisConnection()
-
 func main() {
+	rdb := redisConnection()
+
 	r := gin.Default()
 
-	r.POST("/send-message", sendMessageHandler)
-	r.GET("/receive-messages", receiveMessagesHandler)
+	r.StaticFile("/", "./index.html")
 
-	log.Println("Server started on :8080")
+	r.POST("/api/send-message", func(c *gin.Context) {
+		var request struct {
+			User    string `json:"user"`
+			Message string `json:"message"`
+			Room    string `json:"room"`
+		}
+
+		if err := c.BindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+			return
+		}
+
+		err := sendMessage(rdb, request.Room, request.User, request.Message)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send message"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": "Message sent"})
+	})
+
+	r.GET("/api/receive-messages", func(c *gin.Context) {
+		room := c.DefaultQuery("room", "default-room")
+
+		messages, err := receiveMessages(rdb, room)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to receive messages"})
+			return
+		}
+
+		c.JSON(http.StatusOK, messages)
+	})
+
 	r.Run(":8080")
 }
 
@@ -36,34 +62,11 @@ func redisConnection() *redis.Client {
 
 	_, err := rdb.Ping(ctx).Result()
 	if err != nil {
-		log.Fatalf("Error connecting to Redis: %v", err)
+		log.Fatalf("Error trying to connect to Redis: %v", err)
 	}
-
 	fmt.Println("Connected to Redis")
 
 	return rdb
-}
-
-func sendMessageHandler(c *gin.Context) {
-	var msg Message
-	if err := c.ShouldBindJSON(&msg); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
-		return
-	}
-
-	room := c.DefaultQuery("room", "")
-	if room == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Room parameter is required"})
-		return
-	}
-
-	err := sendMessage(rdb, room, msg.User, msg.Message)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error sending message"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Message sent"})
 }
 
 func sendMessage(rdb *redis.Client, room string, user string, message string) error {
@@ -74,32 +77,13 @@ func sendMessage(rdb *redis.Client, room string, user string, message string) er
 			"message": message,
 		},
 	}).Result()
+
 	return err
 }
 
-func receiveMessagesHandler(c *gin.Context) {
-	room := c.DefaultQuery("room", "")
-	if room == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Room parameter is required"})
-		return
-	}
-
-	lastID := c.DefaultQuery("last_id", "0")
-
-	messages, err := receiveMessages(rdb, room, lastID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error receiving messages"})
-		return
-	}
-
-	c.JSON(http.StatusOK, messages)
-}
-
-func receiveMessages(rdb *redis.Client, room string, lastID string) ([]Message, error) {
-	var messages []Message
-
-	messagesRedis, err := rdb.XRead(ctx, &redis.XReadArgs{
-		Streams: []string{room, lastID},
+func receiveMessages(rdb *redis.Client, room string) ([]map[string]interface{}, error) {
+	messages, err := rdb.XRead(ctx, &redis.XReadArgs{
+		Streams: []string{room, "0"},
 		Block:   0,
 	}).Result()
 
@@ -107,15 +91,10 @@ func receiveMessages(rdb *redis.Client, room string, lastID string) ([]Message, 
 		return nil, err
 	}
 
-	for _, msg := range messagesRedis[0].Messages {
-		user := msg.Values["user"].(string)
-		message := msg.Values["message"].(string)
-		messages = append(messages, Message{
-			User:    user,
-			Message: message,
-		})
-		lastID = msg.ID
+	var result []map[string]interface{}
+	for _, msg := range messages[0].Messages {
+		result = append(result, msg.Values)
 	}
 
-	return messages, nil
+	return result, nil
 }
