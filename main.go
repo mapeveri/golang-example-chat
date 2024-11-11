@@ -2,21 +2,71 @@ package main
 
 import (
 	"context"
+	commands "distributed-chat/src/chat/application/command"
+	queries "distributed-chat/src/chat/application/query"
+	"distributed-chat/src/shared/infrastructure/bus"
 	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
+	"go.uber.org/dig"
 )
 
-var ctx = context.Background()
+func buildContainer() *dig.Container {
+	container := dig.New()
+
+	rdb := redisConnection()
+	container.Provide(func() *redis.Client {
+		return rdb
+	})
+
+	container.Provide(func(rdb *redis.Client) *commands.SendMessageCommandHandler {
+		return &commands.SendMessageCommandHandler{
+			RedisClient: rdb,
+		}
+	})
+
+	container.Provide(func(rdb *redis.Client) *queries.GetMessagesRoomQueryHandler {
+		return &queries.GetMessagesRoomQueryHandler{
+			RedisClient: rdb,
+		}
+	})
+
+	return container
+}
 
 func main() {
-	rdb := redisConnection()
+	container := buildContainer()
+
+	commandBus := bus.NewMemoryCommandBus()
+
+	commandBus.Register(&commands.SendMessageCommand{}, func(cmd interface{}) error {
+		var handler *commands.SendMessageCommandHandler
+		if err := container.Invoke(func(h *commands.SendMessageCommandHandler) {
+			handler = h
+		}); err != nil {
+			log.Fatalf("Error while fetching handler: %v", err)
+		}
+
+		return handler.Handle(cmd.(*commands.SendMessageCommand))
+	})
+
+	queryBus := bus.NewMemoryQueryBus()
+
+	queryBus.Register(&queries.GetMessagesRoomQuery{}, func(cmd interface{}) (interface{}, error) {
+		var handler *queries.GetMessagesRoomQueryHandler
+		if err := container.Invoke(func(h *queries.GetMessagesRoomQueryHandler) {
+			handler = h
+		}); err != nil {
+			log.Fatalf("Error while fetching handler: %v", err)
+		}
+
+		return handler.Handle(cmd.(*queries.GetMessagesRoomQuery))
+	})
 
 	r := gin.Default()
-
 	r.StaticFile("/", "./index.html")
 
 	r.POST("/api/send-message", func(c *gin.Context) {
@@ -31,8 +81,10 @@ func main() {
 			return
 		}
 
-		err := sendMessage(rdb, request.Room, request.User, request.Message)
+		sendMessageCommand := &commands.SendMessageCommand{User: request.User, Message: request.Message, Room: request.Room}
+		err := commandBus.Execute(sendMessageCommand)
 		if err != nil {
+			log.Printf("Failed to send message: %s", err.Error())
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send message"})
 			return
 		}
@@ -43,7 +95,8 @@ func main() {
 	r.GET("/api/receive-messages", func(c *gin.Context) {
 		room := c.DefaultQuery("room", "default-room")
 
-		messages, err := receiveMessages(rdb, room)
+		getMessagesRoomQuery := &queries.GetMessagesRoomQuery{Room: room}
+		messages, err := queryBus.Execute(getMessagesRoomQuery)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to receive messages"})
 			return
@@ -60,41 +113,11 @@ func redisConnection() *redis.Client {
 		Addr: "localhost:6379",
 	})
 
-	_, err := rdb.Ping(ctx).Result()
+	_, err := rdb.Ping(context.Background()).Result()
 	if err != nil {
 		log.Fatalf("Error trying to connect to Redis: %v", err)
 	}
 	fmt.Println("Connected to Redis")
 
 	return rdb
-}
-
-func sendMessage(rdb *redis.Client, room string, user string, message string) error {
-	_, err := rdb.XAdd(ctx, &redis.XAddArgs{
-		Stream: room,
-		Values: map[string]interface{}{
-			"user":    user,
-			"message": message,
-		},
-	}).Result()
-
-	return err
-}
-
-func receiveMessages(rdb *redis.Client, room string) ([]map[string]interface{}, error) {
-	messages, err := rdb.XRead(ctx, &redis.XReadArgs{
-		Streams: []string{room, "0"},
-		Block:   0,
-	}).Result()
-
-	if err != nil {
-		return nil, err
-	}
-
-	var result []map[string]interface{}
-	for _, msg := range messages[0].Messages {
-		result = append(result, msg.Values)
-	}
-
-	return result, nil
 }
