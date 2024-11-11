@@ -1,9 +1,9 @@
 package bus
 
-type CommandBus interface {
+type QueryBus interface {
 	Register(interface{}, interface{}) error
 
 	Handlers() Handlers
 
-	Execute(interface{}) error
+	Execute(interface{}) (interface{}, error)
 }
