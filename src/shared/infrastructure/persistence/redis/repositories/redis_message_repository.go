@@ -28,3 +28,21 @@ func (r *RedisMessageRepository) Save(message domain.Message) error {
 
 	return err
 }
+
+func (r *RedisMessageRepository) ByRoom(room string) (interface{}, error) {
+	messages, err := r.RedisClient.XRead(context.Background(), &redis.XReadArgs{
+		Streams: []string{room, "0"},
+		Block:   0,
+	}).Result()
+
+	if err != nil {
+		return nil, err
+	}
+
+	var result []map[string]interface{}
+	for _, msg := range messages[0].Messages {
+		result = append(result, msg.Values)
+	}
+
+	return result, err
+}

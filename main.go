@@ -34,9 +34,9 @@ func buildContainer() *dig.Container {
 		}
 	})
 
-	container.Provide(func(rdb *redis.Client) *queries.GetMessagesRoomQueryHandler {
+	container.Provide(func(messageRepository domain.MessageRepository) *queries.GetMessagesRoomQueryHandler {
 		return &queries.GetMessagesRoomQueryHandler{
-			RedisClient: rdb,
+			MessageRepository: messageRepository,
 		}
 	})
 
