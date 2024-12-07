@@ -4,7 +4,9 @@ import (
 	"context"
 	commands "distributed-chat/src/chat/application/command"
 	queries "distributed-chat/src/chat/application/query"
+	"distributed-chat/src/chat/domain"
 	"distributed-chat/src/shared/infrastructure/bus"
+	"distributed-chat/src/shared/infrastructure/persistence/redis/repositories"
 	"fmt"
 	"log"
 	"net/http"
@@ -22,9 +24,13 @@ func buildContainer() *dig.Container {
 		return rdb
 	})
 
-	container.Provide(func(rdb *redis.Client) *commands.SendMessageCommandHandler {
+	container.Provide(func(rdb *redis.Client) domain.MessageRepository {
+		return repositories.NewRedisMessageRepository(rdb)
+	})
+
+	container.Provide(func(messageRepository domain.MessageRepository) *commands.SendMessageCommandHandler {
 		return &commands.SendMessageCommandHandler{
-			RedisClient: rdb,
+			MessageRepository: messageRepository,
 		}
 	})
 
