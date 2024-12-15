@@ -6,4 +6,4 @@ Chat using redis stream.
 
 `go run main.go`
 
-Then go to *localhost:8080* in the browser.
+Then go to *[localhost:8080](http://localhost:8080/)* in the browser.
