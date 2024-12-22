@@ -1,6 +1,6 @@
 # distributed-chat
 
-Chat using redis stream.
+Chat using gin and redis stream.
 
 ## Execute
 
