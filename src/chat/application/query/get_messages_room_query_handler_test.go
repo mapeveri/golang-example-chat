@@ -3,33 +3,16 @@ package application_test
 import (
 	application "distributed-chat/src/chat/application/query"
 	"distributed-chat/src/chat/domain"
+	"distributed-chat/src/chat/infrastructure/doubles"
 	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
-
-type MockMessageRepository struct {
-	mock.Mock
-}
-
-func (m *MockMessageRepository) ByRoom(room string) (interface{}, error) {
-	args := m.Called(room)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]domain.Message), args.Error(1)
-}
-
-func (m *MockMessageRepository) Save(message domain.Message) error {
-	args := m.Called(message)
-	return args.Error(0)
-}
 
 func TestGetMessagesRoomQueryHandler_Handle(t *testing.T) {
 	t.Run("should return an error when repository fails", func(t *testing.T) {
-		mockRepo := new(MockMessageRepository)
+		mockRepo := new(doubles.MockMessageRepository)
 		handler := application.GetMessagesRoomQueryHandler{
 			MessageRepository: mockRepo,
 		}
@@ -46,7 +29,7 @@ func TestGetMessagesRoomQueryHandler_Handle(t *testing.T) {
 	})
 
 	t.Run("should return messages when repository succeeds", func(t *testing.T) {
-		mockRepo := new(MockMessageRepository)
+		mockRepo := new(doubles.MockMessageRepository)
 		handler := application.GetMessagesRoomQueryHandler{
 			MessageRepository: mockRepo,
 		}
