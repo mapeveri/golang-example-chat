@@ -1,4 +1,4 @@
-# distributed-chat
+# Golang example chat
 
 Chat using gin and redis stream.
 
