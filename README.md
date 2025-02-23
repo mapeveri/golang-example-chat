@@ -2,7 +2,7 @@
 
 Chat using gin and redis stream.
 
-## Execute
+## Running
 
 `go run main.go`
 
